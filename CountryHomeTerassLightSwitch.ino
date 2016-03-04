@@ -30,6 +30,7 @@
 #define REBOOT_CHILD_ID                       100
 #define RECHECK_SENSOR_VALUES                 101 
 #define LOCAL_SWITCHING_CHILD_ID              106
+#define NIGHTMODE_CHILD_ID                    105
 
 #define BUTTON1_PIN	6
 
@@ -38,6 +39,8 @@
 
 
 #define RELAY1_PIN	5
+
+#define NOCONTROLLER_MODE_PIN	7
 
 
 #define ONE_WIRE_BUS              4      // Pin where dallase sensor is connected 
@@ -82,6 +85,9 @@ DallasTemperature sensors(&oneWire);  // Pass the oneWire reference to Dallas Te
 unsigned long previousTempMillis=0;
 float lastTemp1 = -1;
 
+byte bNoControllerMode = HIGH;
+boolean bNightMode = false;
+
 
 MySensor sensor_node;
 
@@ -116,6 +122,16 @@ void setup() {
   // Activate internal pull-up
   digitalWrite(BUTTON1_PIN,HIGH);
 
+  pinMode(NOCONTROLLER_MODE_PIN,INPUT);
+  // Activate internal pull-up
+  digitalWrite(NOCONTROLLER_MODE_PIN,HIGH);
+
+
+   bNoControllerMode = digitalRead(NOCONTROLLER_MODE_PIN);
+
+
+   if (bNoControllerMode != LOW)
+   {
 
   // requestTemperatures() will not block current thread
   sensors.setWaitForConversion(false);
@@ -160,6 +176,9 @@ void setup() {
     sensor_node.wait(RADIO_RESET_DELAY_TIME); 
     sensor_node.request(LOCAL_SWITCHING_CHILD_ID, V_STATUS);  
 
+    sensor_node.wait(RADIO_RESET_DELAY_TIME); 
+    sensor_node.request(NIGHTMODE_CHILD_ID, V_TRIPPED);     
+}
 
   	  //Enable watchdog timer
   wdt_enable(WDTO_8S);
@@ -175,14 +194,31 @@ void setup() {
 
 void loop() {
 
+ byte switchState = digitalRead(NOCONTROLLER_MODE_PIN);
+
+  if ( switchState != bNoControllerMode )
+  {
+
+  		#ifdef NDEBUG
+          Serial.print("Controller mode ");
+          Serial.println(switchState);          
+        #endif
+  		
+  		bNoControllerMode = switchState;
+  		wdt_enable(WDTO_30MS);
+        while(1) {};
+  	
+  }
 
 chechButton1();
 
 
 checkTemperature();
 
-sensor_node.process();
-
+   if (bNoControllerMode != LOW)
+   {
+		sensor_node.process();
+	}
 
 if (boolRecheckSensorValues)
 {
@@ -275,6 +311,23 @@ void incomingMessage(const MyMessage &message) {
 
      }
 
+    if ( message.sensor == NIGHTMODE_CHILD_ID  && strlen(message.getString())>0 ) {
+         
+         if (message.getBool() == true)
+         {
+            digitalWrite(LED1_PIN, HIGH);
+            bNightMode = true;
+         }
+         else
+         {
+         	digitalWrite(LED1_PIN, LOW);
+            bNightMode = false;
+
+            
+         }
+
+     }
+
         return;      
 } 
 
@@ -298,7 +351,8 @@ void chechButton1 ()
 
           	digitalWrite(LED1_PIN, HIGH);
 
-
+      if (bNoControllerMode != LOW)
+      {
 		    //Отсылаем нажатие кнопки с подтверждением получения
             iCount = MESSAGE_ACK_RETRY_COUNT;
 
@@ -311,15 +365,17 @@ void chechButton1 ()
                  }
 
                 gotAck = false;
+       }
 
-
+   	  if (bNoControllerMode != LOW)
+   	  {
             if ( localSwitching )  
             {
 			    if ( !bRelay1State ) //msgRelay1
 			    {
 
-			    	bRelay1State = true;
-			    	switchRelayON_OFF( RELAY1_PIN, RELAY_ON );
+			    	//bRelay1State = true;
+			    	//switchRelayON_OFF( RELAY1_PIN, RELAY_ON );
 
 					    //Отсылаем состояние реле с подтверждением получения
 			            iCount = MESSAGE_ACK_RETRY_COUNT;
@@ -338,8 +394,8 @@ void chechButton1 ()
 			    else
 			    {
 
-			    	bRelay1State = false;
-			    	switchRelayON_OFF( RELAY1_PIN, RELAY_OFF );       
+			    	//bRelay1State = false;
+			    	//switchRelayON_OFF( RELAY1_PIN, RELAY_OFF );       
 
 					    //Отсылаем состояние реле с подтверждением получения
 			            iCount = MESSAGE_ACK_RETRY_COUNT;
@@ -357,7 +413,10 @@ void chechButton1 ()
 
 	    	  			    	
 			    }
+
 			}
+
+		}	
 
 		  #ifdef NDEBUG	
           Serial.println ("Switch closed.");
@@ -373,8 +432,32 @@ void chechButton1 ()
           Serial.println ("Switch opened.");
           #endif 
 
+
+            if ( localSwitching && !bRelay1DelayMessageSent )  
+            {
+			    if ( !bRelay1State ) //msgRelay1
+			    {
+
+			    	bRelay1State = true;
+			    	switchRelayON_OFF( RELAY1_PIN, RELAY_ON );
+		    	
+
+			    }	
+			    else
+			    {
+
+			    	bRelay1State = false;
+			    	switchRelayON_OFF( RELAY1_PIN, RELAY_OFF );       
+
+	    	  			    	
+			    }
+			}
+
+
           bRelay1DelayMessageSent = false;	
 
+      if (bNoControllerMode != LOW)
+      {
 		    //Отсылаем нажатие кнопки с подтверждением получения
             iCount = MESSAGE_ACK_RETRY_COUNT;
 
@@ -387,8 +470,17 @@ void chechButton1 ()
                  }
 
                 gotAck = false;          
+	  }
 
-                			    	          	digitalWrite(LED1_PIN, LOW);
+
+            if ( !bNightMode )
+            {
+            	digitalWrite(LED1_PIN, LOW);
+            }
+            else
+            {
+            	digitalWrite(LED1_PIN, HIGH);
+            }
 
           }  // end if switchState is HIGH
 
@@ -416,6 +508,8 @@ void chechButton1 ()
 
 			          	digitalWrite(LED1_PIN, LOW);
 
+	   if (bNoControllerMode != LOW)
+	   {
 		    //Отсылаем нажатие кнопки с подтверждением получения
             iCount = MESSAGE_ACK_RETRY_COUNT;
 
@@ -428,6 +522,7 @@ void chechButton1 ()
                  }
 
                 gotAck = false;  
+        }        
 			bRelay1DelayMessageSent = true;
           }
 
@@ -486,6 +581,8 @@ void checkTemperature()
           	    Serial.println (temperature); 
           	    #endif
 
+          	    	   if (bNoControllerMode != LOW)
+          	    	   {
      		   			//Отсылаем состояние реле с подтверждением получения
 			            iCount = MESSAGE_ACK_RETRY_COUNT;
 
@@ -499,8 +596,8 @@ void checkTemperature()
 
 			                gotAck = false;	     
 
-
-			                if ( temperature >= 60 )
+			            }
+			                if ( temperature >= 45 )
 			                {
 			                	//switch off all relays
      		  					 bRelay1State = false;
