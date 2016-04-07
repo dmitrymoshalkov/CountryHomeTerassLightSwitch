@@ -9,7 +9,7 @@
 
 
 
-#define NDEBUG                        // enable local debugging information
+//#define NDEBUG                        // enable local debugging information
 
 #define SKETCH_NAME "Terrass light switch"
 #define SKETCH_MAJOR_VER "1"
@@ -48,7 +48,9 @@
 #define RELAY_ON 1  // GPIO value to write to turn on attached relay
 #define RELAY_OFF 0 // GPIO value to write to turn off attached relay
 
-#define TEMPCHECK_TIME 120000
+#define TEMPCHECK_TIME 15000
+#define TEMPCHECK_SEND_TIME 120000
+#define GWSTATUSCHECK_TIME 300000
 
 
 const unsigned long debounceTime = 10;  // milliseconds
@@ -83,7 +85,11 @@ boolean boolRecheckSensorValues = false;
 OneWire oneWire(ONE_WIRE_BUS);        // Setup a oneWire instance to communicate with any OneWire devices (not just Maxim/Dallas temperature ICs)
 DallasTemperature sensors(&oneWire);  // Pass the oneWire reference to Dallas Temperature. 
 unsigned long previousTempMillis=0;
+unsigned long previousTempSendMillis=0;
 float lastTemp1 = -1;
+
+unsigned long previousStatMillis = 0;
+boolean bGatewayPresent = true;
 
 byte bNoControllerMode = HIGH;
 boolean bNightMode = false;
@@ -133,6 +139,14 @@ void setup() {
    if (bNoControllerMode != LOW)
    {
 
+        for (int i=0; i<=12; i++)
+    {
+      digitalWrite(A0, HIGH);
+      delay(70);
+      digitalWrite(A0, LOW);    
+      delay(70);      
+    }
+
   // requestTemperatures() will not block current thread
   sensors.setWaitForConversion(false);
 
@@ -179,6 +193,18 @@ void setup() {
     sensor_node.wait(RADIO_RESET_DELAY_TIME); 
     sensor_node.request(NIGHTMODE_CHILD_ID, V_TRIPPED);     
 }
+else
+{
+
+        for (int i=0; i<=3; i++)
+    {
+      digitalWrite(A0, HIGH);
+      delay(250);
+      digitalWrite(A0, LOW);    
+      delay(250);      
+    }
+
+}
 
   	  //Enable watchdog timer
   wdt_enable(WDTO_8S);
@@ -209,6 +235,9 @@ void loop() {
         while(1) {};
   	
   }
+
+checkGatewayStatus();
+
 
 chechButton1();
 
@@ -335,6 +364,8 @@ void incomingMessage(const MyMessage &message) {
 void chechButton1 ()
 {
 
+  int iCountStat = -1;
+
   byte switchState = digitalRead (BUTTON1_PIN);
   
 
@@ -351,8 +382,11 @@ void chechButton1 ()
 
           	digitalWrite(LED1_PIN, HIGH);
 
-      if (bNoControllerMode != LOW)
+      if (bNoControllerMode != LOW && bGatewayPresent)
       {
+
+      		if ( !localSwitching )  
+      		{
 		    //Отсылаем нажатие кнопки с подтверждением получения
             iCount = MESSAGE_ACK_RETRY_COUNT;
 
@@ -365,58 +399,13 @@ void chechButton1 ()
                  }
 
                 gotAck = false;
+
+                iCountStat =  iCount;                 
+
+            }
        }
 
-   	  if (bNoControllerMode != LOW)
-   	  {
-            if ( localSwitching )  
-            {
-			    if ( !bRelay1State ) //msgRelay1
-			    {
 
-			    	//bRelay1State = true;
-			    	//switchRelayON_OFF( RELAY1_PIN, RELAY_ON );
-
-					    //Отсылаем состояние реле с подтверждением получения
-			            iCount = MESSAGE_ACK_RETRY_COUNT;
-
-			              while( !gotAck && iCount > 0 )
-			                {
-			      
-			    	            sensor_node.send(msgRelay1Status.set("1"), true);
-			                    sensor_node.wait(RADIO_RESET_DELAY_TIME);
-			                  iCount--;
-			                 }
-
-			                gotAck = false;			    	
-
-			    }	
-			    else
-			    {
-
-			    	//bRelay1State = false;
-			    	//switchRelayON_OFF( RELAY1_PIN, RELAY_OFF );       
-
-					    //Отсылаем состояние реле с подтверждением получения
-			            iCount = MESSAGE_ACK_RETRY_COUNT;
-
-			              while( !gotAck && iCount > 0 )
-			                {
-			      
-			    	            sensor_node.send(msgRelay1Status.set("0"), true);
-			                    sensor_node.wait(RADIO_RESET_DELAY_TIME);
-			                  iCount--;
-			                 }
-
-			                gotAck = false;	
-			    	//send status message	
-
-	    	  			    	
-			    }
-
-			}
-
-		}	
 
 		  #ifdef NDEBUG	
           Serial.println ("Switch closed.");
@@ -440,6 +429,23 @@ void chechButton1 ()
 
 			    	bRelay1State = true;
 			    	switchRelayON_OFF( RELAY1_PIN, RELAY_ON );
+
+			    	if (bNoControllerMode != LOW && bGatewayPresent)
+			    	{
+			    		//Отсылаем состояние реле с подтверждением получения
+			            iCount = MESSAGE_ACK_RETRY_COUNT;
+
+			              while( !gotAck && iCount > 0 )
+			                {
+			      
+			    	            sensor_node.send(msgRelay1Status.set("1"), true);
+			                    sensor_node.wait(RADIO_RESET_DELAY_TIME);
+			                  iCount--;
+			                 }
+
+			                gotAck = false;		
+                      iCountStat =  iCount;                        
+			    	}
 		    	
 
 			    }	
@@ -449,6 +455,22 @@ void chechButton1 ()
 			    	bRelay1State = false;
 			    	switchRelayON_OFF( RELAY1_PIN, RELAY_OFF );       
 
+			    	if (bNoControllerMode != LOW && bGatewayPresent )
+			    	{
+					    //Отсылаем состояние реле с подтверждением получения
+			            iCount = MESSAGE_ACK_RETRY_COUNT;
+
+			              while( !gotAck && iCount > 0 )
+			                {
+			      
+			    	            sensor_node.send(msgRelay1Status.set("0"), true);
+			                    sensor_node.wait(RADIO_RESET_DELAY_TIME);
+			                  iCount--;
+			                 }
+
+			                gotAck = false;	
+                      iCountStat =  iCount;                        
+			    	}
 	    	  			    	
 			    }
 			}
@@ -456,8 +478,10 @@ void chechButton1 ()
 
           bRelay1DelayMessageSent = false;	
 
-      if (bNoControllerMode != LOW)
+      if (bNoControllerMode != LOW && bGatewayPresent)
       {
+      		if (!localSwitching)
+      		{
 		    //Отсылаем нажатие кнопки с подтверждением получения
             iCount = MESSAGE_ACK_RETRY_COUNT;
 
@@ -469,7 +493,10 @@ void chechButton1 ()
                   iCount--;
                  }
 
-                gotAck = false;          
+                gotAck = false;
+                iCountStat =  iCountStat + iCount;  
+
+            }   
 	  }
 
 
@@ -486,6 +513,8 @@ void chechButton1 ()
 
        switch1PressTime = millis ();  // when we closed the switch 
        oldSwitch1State =  switchState;  // remember for next time 
+
+          setGatewayStatus(iCountStat); // if no answer from gateway go to nosend mode
 
            
        }  // end if debounce time up
@@ -508,7 +537,7 @@ void chechButton1 ()
 
 			          	digitalWrite(LED1_PIN, LOW);
 
-	   if (bNoControllerMode != LOW)
+	   if (bNoControllerMode != LOW && bGatewayPresent)
 	   {
 		    //Отсылаем нажатие кнопки с подтверждением получения
             iCount = MESSAGE_ACK_RETRY_COUNT;
@@ -532,8 +561,10 @@ void chechButton1 ()
 
 }
 
-void resendRelayStatus()
+int resendRelayStatus()
 {
+
+
 
    			//Отсылаем состояние реле с подтверждением получения
         iCount = MESSAGE_ACK_RETRY_COUNT;
@@ -548,7 +579,7 @@ void resendRelayStatus()
 
             gotAck = false;	
   			  		     		
-
+  return iCount;
 }
 
 
@@ -573,7 +604,6 @@ void checkTemperature()
 
 
 
-
          if (temperature != lastTemp1 && temperature != -127.00 && temperature != 85.00 ) {
 
           		#ifdef NDEBUG                
@@ -583,6 +613,11 @@ void checkTemperature()
 
           	    	   if (bNoControllerMode != LOW)
           	    	   {
+          	    	   	currentTempMillis = millis();
+    					if((currentTempMillis - previousTempSendMillis ) > TEMPCHECK_SEND_TIME ) {
+        				// Save the current millis
+        				previousTempSendMillis = currentTempMillis;
+
      		   			//Отсылаем состояние реле с подтверждением получения
 			            iCount = MESSAGE_ACK_RETRY_COUNT;
 
@@ -594,14 +629,18 @@ void checkTemperature()
 			                  iCount--;
 			                 }
 
-			                gotAck = false;	     
+			                gotAck = false;	   
+
+                      setGatewayStatus(iCount);  
 
 			            }
-			                if ( temperature >= 45 )
+			        	}
+			                if ( temperature >= 50 )
 			                {
 			                	//switch off all relays
      		  					 bRelay1State = false;
-     		   					 switchRelayON_OFF( RELAY1_PIN, RELAY_OFF );			                	
+     		   					 switchRelayON_OFF( RELAY1_PIN, RELAY_OFF );	
+                     resendRelayStatus();		                	
 		   					      		   					 
 			                }     		
 
@@ -613,4 +652,57 @@ void checkTemperature()
 
       }
 }
+
+void setGatewayStatus(int iRert)
+{
+
+if ( bNoControllerMode != LOW)
+{
+    if ( iRert == 0 && bGatewayPresent )
+    {
+        bGatewayPresent = false;
+
+    }
+    else if ( iRert > 0 && !bGatewayPresent )
+    {
+
+        bGatewayPresent = true;
+        resendRelayStatus();
+
+    }
+}
+}
+
+void checkGatewayStatus()
+{
+
+if ( bNoControllerMode != LOW )
+{
+    unsigned long currentStatMillis = millis();
+    if((currentStatMillis - previousStatMillis ) > GWSTATUSCHECK_TIME ) 
+      {
+        // Save the current millis
+        previousStatMillis = currentStatMillis;
+
+
+
+      if ( resendRelayStatus() > 0 )
+      {
+
+          bGatewayPresent = true;
+
+      }
+      else
+      {
+
+          bGatewayPresent = false;
+
+      }
+
+      }
+
+
+}
+}
+
 
